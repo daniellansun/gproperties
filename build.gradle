@@ -1,0 +1,128 @@
+/*
+ *  Licensed to the Apache Software Foundation (ASF) under one
+ *  or more contributor license agreements.  See the NOTICE file
+ *  distributed with this work for additional information
+ *  regarding copyright ownership.  The ASF licenses this file
+ *  to you under the Apache License, Version 2.0 (the
+ *  "License"); you may not use this file except in compliance
+ *  with the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing,
+ *  software distributed under the License is distributed on an
+ *  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ *  KIND, either express or implied.  See the License for the
+ *  specific language governing permissions and limitations
+ *  under the License.
+ */
+buildscript {
+    repositories {
+        mavenLocal()
+        jcenter()
+        mavenCentral()
+        maven { url "https://plugins.gradle.org/m2/" }
+        maven { url 'https://jitpack.io' }
+    }
+}
+
+group 'me.sunlan'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'java'
+apply plugin: 'groovy'
+apply plugin: 'antlr'
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+compileJava.options.encoding = 'UTF-8'
+
+repositories {
+    mavenLocal()
+
+    if (rootProject.hasProperty('buildInChina')) {
+        // Try to use Aliyun maven repository when building in China
+        maven { url 'http://maven.aliyun.com/nexus/content/groups/public' }
+    }
+
+    jcenter()
+    mavenCentral()
+
+    maven { url 'https://oss.jfrog.org/oss-snapshot-local/' }
+}
+
+generateGrammarSource {
+    final PARSER_PACKAGE_NAME = 'me.sunlan.groovy.parser.gproperties'
+
+    arguments += ["-visitor", "-no-listener", "-package", PARSER_PACKAGE_NAME]
+
+    doLast {
+        def parserFilePattern = 'GProperties*'
+        def outputPath = generateGrammarSource.outputDirectory.canonicalPath
+        def parserPackagePath = "${outputPath}/${PARSER_PACKAGE_NAME.replace('.', '/')}"
+        file(parserPackagePath).mkdirs()
+        copy {
+            from outputPath
+            into parserPackagePath
+            include parserFilePattern
+        }
+        delete fileTree(outputPath) {
+            include parserFilePattern
+        }
+    }
+}
+
+//generateGrammarSource.dependsOn clean
+//compileJava.dependsOn generateGrammarSource
+
+
+ext {
+    antlr4Version = '4.7.1'
+    groovyVersion = '3.0.0-SNAPSHOT'
+    junitVersion = '4.12'
+}
+
+dependencies {
+    antlr "com.tunnelvisionlabs:antlr4:$antlr4Version"
+    compile "org.codehaus.groovy:groovy-all:$groovyVersion"
+
+    testCompile "junit:junit:$junitVersion"
+}
+
+//task antlr(dependsOn: generateGrammarSource) // alias for generateGrammarSource
+
+wrapper {
+    gradleVersion = '4.10.2'
+}
+
+test {
+    jvmArgs '-ea', "-Xms512m", "-Xmx1g", "-XX:+UseConcMarkSweepGC", "-Dgroovy.antlr4.cache.threshold=150", "-Dgroovy.attach.groovydoc=true"
+
+    def headless = System.properties['java.awt.headless']
+    if (headless == 'true') {
+        systemProperties 'java.awt.headless': 'true'
+    }
+
+    forkEvery = 50
+    maxParallelForks = isRunningOnCI() ? 1 : Runtime.runtime.availableProcessors()
+    scanForTestClasses = true
+    ignoreFailures = false
+
+    testLogging {
+        events /*"passed",*/ "skipped", "failed", "standardOut" /*, "standardError"*/
+
+        afterSuite { desc, result ->
+            if (!desc.parent) {
+                println "Test results for ${project.name}: ${result.resultType} (${result.testCount} tests, ${result.successfulTestCount} passed, ${result.failedTestCount} failed, ${result.skippedTestCount} skipped)"
+            }
+        }
+    }
+}
+
+logger.lifecycle "Detected ${isRunningOnCI() ? 'Continuous Integration environment' : 'development environment'}"
+
+
+boolean isRunningOnCI() {
+    new File('.').absolutePath =~ /teamcity|jenkins|hudson|travis|ubuntu/
+}
+
